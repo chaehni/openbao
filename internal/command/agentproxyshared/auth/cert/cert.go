@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/openbao/openbao/api/v2"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/v2/internal/command/agentproxyshared/auth"
@@ -24,6 +25,12 @@ type certMethod struct {
 	clientCert string
 	clientKey  string
 	reload     bool
+
+	// windowsCertStore, when true, sources the client certificate and its
+	// private key from the Windows certificate store (via CNG/CryptoAPI)
+	// instead of from clientCert/clientKey on disk. It is mutually
+	// exclusive with clientCert/clientKey.
+	windowsCertStore windowsCertStoreConfig
 
 	// Client is the cached client to use if cert info was provided.
 	client *api.Client
@@ -85,6 +92,88 @@ func NewCertAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
 				return nil, errors.New("could not convert 'reload' config value to bool")
 			}
 		}
+
+		windowsCertStoreRaw, ok := conf.Config["windows_cert_store"]
+		if ok {
+			c.windowsCertStore.enabled, ok = windowsCertStoreRaw.(bool)
+			if !ok {
+				return nil, errors.New("could not convert 'windows_cert_store' config value to bool")
+			}
+		}
+
+		if c.windowsCertStore.enabled {
+			if c.clientCert != "" || c.clientKey != "" {
+				return nil, errors.New("'client_cert'/'client_key' cannot be used together with 'windows_cert_store'")
+			}
+
+			locationRaw, ok := conf.Config["windows_cert_store_location"]
+			if ok {
+				c.windowsCertStore.location, ok = locationRaw.(string)
+				if !ok {
+					return nil, errors.New("could not convert 'windows_cert_store_location' config value to string")
+				}
+			}
+			switch c.windowsCertStore.location {
+			case "", "local_machine", "current_user":
+			default:
+				return nil, fmt.Errorf("invalid 'windows_cert_store_location' value %q: must be 'local_machine' or 'current_user'", c.windowsCertStore.location)
+			}
+
+			c.windowsCertStore.provider = "Microsoft Software Key Storage Provider"
+			providerRaw, ok := conf.Config["windows_cert_store_provider"]
+			if ok {
+				c.windowsCertStore.provider, ok = providerRaw.(string)
+				if !ok {
+					return nil, errors.New("could not convert 'windows_cert_store_provider' config value to string")
+				}
+			}
+
+			containerRaw, ok := conf.Config["windows_cert_store_container"]
+			if ok {
+				c.windowsCertStore.container, ok = containerRaw.(string)
+				if !ok {
+					return nil, errors.New("could not convert 'windows_cert_store_container' config value to string")
+				}
+			}
+
+			commonNameRaw, ok := conf.Config["windows_cert_store_common_name"]
+			if ok {
+				c.windowsCertStore.commonName, ok = commonNameRaw.(string)
+				if !ok {
+					return nil, errors.New("could not convert 'windows_cert_store_common_name' config value to string")
+				}
+			}
+
+			issuersRaw, ok := conf.Config["windows_cert_store_issuers"]
+			if ok {
+				var err error
+				c.windowsCertStore.issuers, err = parseutil.ParseCommaStringSlice(issuersRaw)
+				if err != nil {
+					return nil, fmt.Errorf("could not parse 'windows_cert_store_issuers' config value: %w", err)
+				}
+			}
+
+			intermediateIssuersRaw, ok := conf.Config["windows_cert_store_intermediate_issuers"]
+			if ok {
+				var err error
+				c.windowsCertStore.intermediateIssuers, err = parseutil.ParseCommaStringSlice(intermediateIssuersRaw)
+				if err != nil {
+					return nil, fmt.Errorf("could not parse 'windows_cert_store_intermediate_issuers' config value: %w", err)
+				}
+			}
+
+			legacyKeyRaw, ok := conf.Config["windows_cert_store_legacy_key"]
+			if ok {
+				c.windowsCertStore.legacyKey, ok = legacyKeyRaw.(bool)
+				if !ok {
+					return nil, errors.New("could not convert 'windows_cert_store_legacy_key' config value to bool")
+				}
+			}
+
+			if c.windowsCertStore.commonName == "" && c.windowsCertStore.container == "" && len(c.windowsCertStore.issuers) == 0 {
+				return nil, errors.New("'windows_cert_store' requires either 'windows_cert_store_common_name' or 'windows_cert_store_container'/'windows_cert_store_issuers' to locate the certificate")
+			}
+		}
 	}
 
 	return c, nil
@@ -118,7 +207,7 @@ func (c *certMethod) AuthClient(client *api.Client) (*api.Client, error) {
 
 	clientToAuth := client
 
-	if c.caCert != "" || (c.clientKey != "" && c.clientCert != "") {
+	if c.windowsCertStore.enabled || c.caCert != "" || (c.clientKey != "" && c.clientCert != "") {
 		// Return cached client if present
 		if c.client != nil && !c.reload {
 			return c.client, nil
@@ -131,14 +220,29 @@ func (c *certMethod) AuthClient(client *api.Client) (*api.Client, error) {
 		config.Address = client.Address()
 
 		t := &api.TLSConfig{
-			CACert:     c.caCert,
-			ClientCert: c.clientCert,
-			ClientKey:  c.clientKey,
+			CACert: c.caCert,
+		}
+		if !c.windowsCertStore.enabled {
+			t.ClientCert = c.clientCert
+			t.ClientKey = c.clientKey
 		}
 
 		// Setup TLS config
 		if err := config.ConfigureTLS(t); err != nil {
 			return nil, err
+		}
+
+		if c.windowsCertStore.enabled {
+			getClientCertificate, err := newWindowsClientCertificateFunc(c.windowsCertStore)
+			if err != nil {
+				return nil, fmt.Errorf("failed to configure windows certificate store client certificate: %w", err)
+			}
+
+			transport, ok := config.HttpClient.Transport.(*http.Transport)
+			if !ok || transport.TLSClientConfig == nil {
+				return nil, errors.New("unexpected HTTP transport, cannot configure windows certificate store client certificate")
+			}
+			transport.TLSClientConfig.GetClientCertificate = getClientCertificate
 		}
 
 		var err error

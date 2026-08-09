@@ -7,6 +7,8 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/go-hclog"
@@ -186,5 +188,157 @@ func TestCertAuthMethod_AuthClient_withCertsReload(t *testing.T) {
 
 	if reloadedClient == clientToUse {
 		t.Fatal("expected client from AuthClient to return back a new client")
+	}
+}
+
+func TestCertAuthMethod_WindowsCertStore_ConflictsWithClientCert(t *testing.T) {
+	config := &auth.AuthConfig{
+		Logger:    hclog.NewNullLogger(),
+		MountPath: "cert-test",
+		Config: map[string]any{
+			"windows_cert_store":             true,
+			"windows_cert_store_common_name": "example",
+			"client_cert":                    "./test-fixtures/keys/cert.pem",
+			"client_key":                     "./test-fixtures/keys/key.pem",
+		},
+	}
+
+	if _, err := NewCertAuthMethod(config); err == nil {
+		t.Fatal("expected error when combining windows_cert_store with client_cert/client_key")
+	}
+}
+
+func TestCertAuthMethod_WindowsCertStore_RequiresLocator(t *testing.T) {
+	config := &auth.AuthConfig{
+		Logger:    hclog.NewNullLogger(),
+		MountPath: "cert-test",
+		Config: map[string]any{
+			"windows_cert_store": true,
+		},
+	}
+
+	if _, err := NewCertAuthMethod(config); err == nil {
+		t.Fatal("expected error when windows_cert_store is enabled without a common name, container, or issuers")
+	}
+}
+
+func TestCertAuthMethod_WindowsCertStore_InvalidLocation(t *testing.T) {
+	config := &auth.AuthConfig{
+		Logger:    hclog.NewNullLogger(),
+		MountPath: "cert-test",
+		Config: map[string]any{
+			"windows_cert_store":             true,
+			"windows_cert_store_common_name": "example",
+			"windows_cert_store_location":    "not-a-real-location",
+		},
+	}
+
+	if _, err := NewCertAuthMethod(config); err == nil {
+		t.Fatal("expected error for invalid windows_cert_store_location")
+	}
+}
+
+func TestCertAuthMethod_WindowsCertStore_ParsesConfig(t *testing.T) {
+	config := &auth.AuthConfig{
+		Logger:    hclog.NewNullLogger(),
+		MountPath: "cert-test",
+		Config: map[string]any{
+			"windows_cert_store":                      true,
+			"windows_cert_store_location":             "current_user",
+			"windows_cert_store_provider":             "Microsoft Platform Crypto Provider",
+			"windows_cert_store_container":            "my-container",
+			"windows_cert_store_issuers":              "Issuer One,Issuer Two",
+			"windows_cert_store_intermediate_issuers": "Intermediate One",
+			"windows_cert_store_legacy_key":           true,
+		},
+	}
+
+	method, err := NewCertAuthMethod(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, ok := method.(*certMethod)
+	if !ok {
+		t.Fatal("expected *certMethod")
+	}
+
+	if !c.windowsCertStore.enabled {
+		t.Fatal("expected windowsCertStore to be enabled")
+	}
+	if c.windowsCertStore.location != "current_user" {
+		t.Fatalf("unexpected location: %s", c.windowsCertStore.location)
+	}
+	if c.windowsCertStore.provider != "Microsoft Platform Crypto Provider" {
+		t.Fatalf("unexpected provider: %s", c.windowsCertStore.provider)
+	}
+	if c.windowsCertStore.container != "my-container" {
+		t.Fatalf("unexpected container: %s", c.windowsCertStore.container)
+	}
+	if !reflect.DeepEqual(c.windowsCertStore.issuers, []string{"Issuer One", "Issuer Two"}) {
+		t.Fatalf("unexpected issuers: %v", c.windowsCertStore.issuers)
+	}
+	if !reflect.DeepEqual(c.windowsCertStore.intermediateIssuers, []string{"Intermediate One"}) {
+		t.Fatalf("unexpected intermediate issuers: %v", c.windowsCertStore.intermediateIssuers)
+	}
+	if !c.windowsCertStore.legacyKey {
+		t.Fatal("expected legacyKey to be true")
+	}
+}
+
+func TestCertAuthMethod_WindowsCertStore_DefaultProvider(t *testing.T) {
+	config := &auth.AuthConfig{
+		Logger:    hclog.NewNullLogger(),
+		MountPath: "cert-test",
+		Config: map[string]any{
+			"windows_cert_store":             true,
+			"windows_cert_store_common_name": "example",
+		},
+	}
+
+	method, err := NewCertAuthMethod(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := method.(*certMethod)
+	if c.windowsCertStore.provider != "Microsoft Software Key Storage Provider" {
+		t.Fatalf("unexpected default provider: %s", c.windowsCertStore.provider)
+	}
+}
+
+// On non-Windows platforms, AuthClient must fail clearly rather than silently
+// falling back to an unauthenticated client, since callers rely on cert auth
+// actually presenting a client certificate.
+func TestCertAuthMethod_WindowsCertStore_UnsupportedPlatform(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("this test exercises the non-windows stub")
+	}
+
+	config := &auth.AuthConfig{
+		Logger:    hclog.NewNullLogger(),
+		MountPath: "cert-test",
+		Config: map[string]any{
+			"windows_cert_store":             true,
+			"windows_cert_store_common_name": "example",
+		},
+	}
+
+	method, err := NewCertAuthMethod(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := api.NewClient(api.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = method.(auth.AuthMethodWithClient).AuthClient(client)
+	if err == nil {
+		t.Fatal("expected error configuring windows certificate store client certificate on a non-windows platform")
+	}
+	if !strings.Contains(err.Error(), "windows") {
+		t.Fatalf("expected error to mention windows, got: %v", err)
 	}
 }
