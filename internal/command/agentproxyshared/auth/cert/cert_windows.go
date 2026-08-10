@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/google/certtostore"
+	"golang.org/x/sys/windows"
 )
 
 // windowsCertStoreConfig carries the parameters needed to locate a client
@@ -89,13 +90,25 @@ func newWindowsClientCertificateFunc(cfg windowsCertStoreConfig) (func(*tls.Cert
 	}, nil
 }
 
+// openWindowsCertStore opens the store read-only. The default open mode
+// certtostore's OpenWinCertStore/OpenWinCertStoreCurrentUser use implicitly
+// requests read-write access to the store; for LocalMachine that requires
+// admin/SYSTEM-level access even though we only ever read a certificate and
+// delegate signing to CNG. A non-admin account (e.g. a dedicated service
+// account with the private key's ACL granted to it, but no broader access to
+// the store itself) can fail to open the store at all as a result. Passing
+// CERT_STORE_READONLY_FLAG avoids requesting more than we need.
 func openWindowsCertStore(cfg windowsCertStoreConfig) (*certtostore.WinCertStore, error) {
+	opts := certtostore.DefaultWinCertStoreOptions(cfg.provider, cfg.container, cfg.issuers, cfg.intermediateIssuers, cfg.legacyKey)
+	opts.StoreFlags = windows.CERT_STORE_READONLY_FLAG
+
 	switch cfg.location {
 	case "", "local_machine":
-		return certtostore.OpenWinCertStore(cfg.provider, cfg.container, cfg.issuers, cfg.intermediateIssuers, cfg.legacyKey)
 	case "current_user":
-		return certtostore.OpenWinCertStoreCurrentUser(cfg.provider, cfg.container, cfg.issuers, cfg.intermediateIssuers, cfg.legacyKey)
+		opts.CurrentUser = true
 	default:
 		return nil, fmt.Errorf("unknown windows certificate store location %q", cfg.location)
 	}
+
+	return certtostore.OpenWinCertStoreWithOptions(opts)
 }
