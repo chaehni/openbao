@@ -217,7 +217,7 @@ func TestCertAuthMethod_WindowsCertStore_RequiresLocator(t *testing.T) {
 	}
 
 	if _, err := NewCertAuthMethod(config); err == nil {
-		t.Fatal("expected error when windows_cert_store_* config is present without a common name, container, or issuers")
+		t.Fatal("expected error when windows_cert_store_* config is present without a common name")
 	}
 }
 
@@ -241,12 +241,9 @@ func TestCertAuthMethod_WindowsCertStore_ParsesConfig(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store_location":             "current_user",
-			"windows_cert_store_provider":             "Microsoft Platform Crypto Provider",
-			"windows_cert_store_container":            "my-container",
-			"windows_cert_store_issuers":              "Issuer One,Issuer Two",
-			"windows_cert_store_intermediate_issuers": "Intermediate One",
-			"windows_cert_store_legacy_key":           true,
+			"windows_cert_store_common_name": "example",
+			"windows_cert_store_location":    "current_user",
+			"windows_cert_store_provider":    "Microsoft Platform Crypto Provider",
 		},
 	}
 
@@ -263,23 +260,14 @@ func TestCertAuthMethod_WindowsCertStore_ParsesConfig(t *testing.T) {
 	if !c.windowsCertStore.enabled {
 		t.Fatal("expected windowsCertStore to be enabled")
 	}
+	if c.windowsCertStore.commonName != "example" {
+		t.Fatalf("unexpected common name: %s", c.windowsCertStore.commonName)
+	}
 	if c.windowsCertStore.location != "current_user" {
 		t.Fatalf("unexpected location: %s", c.windowsCertStore.location)
 	}
 	if c.windowsCertStore.provider != "Microsoft Platform Crypto Provider" {
 		t.Fatalf("unexpected provider: %s", c.windowsCertStore.provider)
-	}
-	if c.windowsCertStore.container != "my-container" {
-		t.Fatalf("unexpected container: %s", c.windowsCertStore.container)
-	}
-	if !reflect.DeepEqual(c.windowsCertStore.issuers, []string{"Issuer One", "Issuer Two"}) {
-		t.Fatalf("unexpected issuers: %v", c.windowsCertStore.issuers)
-	}
-	if !reflect.DeepEqual(c.windowsCertStore.intermediateIssuers, []string{"Intermediate One"}) {
-		t.Fatalf("unexpected intermediate issuers: %v", c.windowsCertStore.intermediateIssuers)
-	}
-	if !c.windowsCertStore.legacyKey {
-		t.Fatal("expected legacyKey to be true")
 	}
 }
 

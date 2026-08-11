@@ -16,13 +16,9 @@ import (
 type windowsCertStoreConfig struct {
 	enabled bool
 
-	location            string
-	provider            string
-	container           string
-	issuers             []string
-	intermediateIssuers []string
-	commonName          string
-	legacyKey           bool
+	location   string
+	provider   string
+	commonName string
 }
 
 func newWindowsClientCertificateFunc(windowsCertStoreConfig) (func(*tls.CertificateRequestInfo) (*tls.Certificate, error), error) {

@@ -35,12 +35,14 @@ config stanza, Agent and Proxy will fall back to using TLS settings from their r
 
 - Sourcing the client certificate and private key from the **Windows certificate store** (via
   CNG/CryptoAPI) instead of from `client_cert`/`client_key` on disk is enabled implicitly by
-  setting any of the `windows_cert_store_*` options below - there is no separate enable flag.
-  This allows the private key to remain non-exportable (e.g. TPM-backed) since signing during
-  the TLS handshake is delegated to the store. Only supported when the agent binary is built
-  for Windows (`GOOS=windows`). Mutually exclusive with `client_cert`/`client_key`. Requires
-  either `windows_cert_store_common_name` or `windows_cert_store_container`/
-  `windows_cert_store_issuers` to locate the certificate.
+  setting `windows_cert_store_common_name` below - there is no separate enable flag. This
+  allows the private key to remain non-exportable (e.g. TPM-backed) since signing during the
+  TLS handshake is delegated to the store. Only supported when the agent binary is built for
+  Windows (`GOOS=windows`). Mutually exclusive with `client_cert`/`client_key`.
+
+- `windows_cert_store_common_name` `(string: optional)` - The subject common name of the
+  certificate to use from the Windows certificate store. Setting this is what enables Windows
+  certificate store mode.
 
 - `windows_cert_store_location` `(string: optional, default: "local_machine")` - Which Windows
   certificate store to open: `local_machine` or `current_user`.
@@ -48,19 +50,3 @@ config stanza, Agent and Proxy will fall back to using TLS settings from their r
 - `windows_cert_store_provider` `(string: optional, default: "Microsoft Software Key Storage
   Provider")` - The CNG key storage provider to use, e.g. `"Microsoft Platform Crypto
   Provider"` for TPM-backed keys.
-
-- `windows_cert_store_container` `(string: optional)` - The CNG key container name to search
-  for a matching certificate, used together with `windows_cert_store_issuers`.
-
-- `windows_cert_store_issuers` `(string: optional)` - A comma-separated list of acceptable
-  issuer common names, used together with `windows_cert_store_container` to locate the
-  certificate.
-
-- `windows_cert_store_intermediate_issuers` `(string: optional)` - A comma-separated list of
-  acceptable intermediate issuer common names.
-
-- `windows_cert_store_common_name` `(string: optional)` - If set, locates the certificate by
-  its subject common name instead of by container/issuers.
-
-- `windows_cert_store_legacy_key` `(bool: optional, default: false)` - If true, uses the
-  legacy CryptoAPI instead of CNG to access the private key.

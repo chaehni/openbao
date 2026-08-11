@@ -7,8 +7,6 @@ package cert
 
 import (
 	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"fmt"
 
 	"github.com/google/certtostore"
@@ -16,18 +14,13 @@ import (
 )
 
 // windowsCertStoreConfig carries the parameters needed to locate a client
-// certificate and its private key in the Windows certificate store via CNG
-// (or, if legacyKey is set, legacy CryptoAPI).
+// certificate and its private key in the Windows certificate store via CNG.
 type windowsCertStoreConfig struct {
 	enabled bool
 
-	location            string // "local_machine" (default) or "current_user"
-	provider            string
-	container           string
-	issuers             []string
-	intermediateIssuers []string
-	commonName          string
-	legacyKey           bool
+	location   string // "local_machine" (default) or "current_user"
+	provider   string
+	commonName string
 }
 
 // newWindowsClientCertificateFunc returns a tls.Config.GetClientCertificate
@@ -41,37 +34,17 @@ func newWindowsClientCertificateFunc(cfg windowsCertStoreConfig) (func(*tls.Cert
 		return nil, fmt.Errorf("failed to open windows certificate store: %w", err)
 	}
 
-	var (
-		leaf *x509.Certificate
-		key  certtostore.Credential
-	)
-
-	if cfg.commonName != "" {
-		cert, ctx, _, err := store.CertByCommonName(cfg.commonName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to locate certificate with common name %q in windows certificate store: %w", cfg.commonName, err)
-		}
-		if cert == nil || ctx == nil {
-			return nil, fmt.Errorf("no certificate with common name %q found in windows certificate store", cfg.commonName)
-		}
-		leaf = cert
-		key, err = store.CertKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire private key for certificate with common name %q: %w", cfg.commonName, err)
-		}
-	} else {
-		cert, ctx, err := store.CertWithContext()
-		if err != nil {
-			return nil, fmt.Errorf("failed to locate certificate in windows certificate store: %w", err)
-		}
-		if cert == nil || ctx == nil {
-			return nil, errors.New("no matching certificate found in windows certificate store")
-		}
-		leaf = cert
-		key, err = store.CertKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire private key for certificate: %w", err)
-		}
+	cert, ctx, _, err := store.CertByCommonName(cfg.commonName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate certificate with common name %q in windows certificate store: %w", cfg.commonName, err)
+	}
+	if cert == nil || ctx == nil {
+		return nil, fmt.Errorf("no certificate with common name %q found in windows certificate store", cfg.commonName)
+	}
+	leaf := cert
+	key, err := store.CertKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire private key for certificate with common name %q: %w", cfg.commonName, err)
 	}
 
 	chain := [][]byte{leaf.Raw}
@@ -99,7 +72,15 @@ func newWindowsClientCertificateFunc(cfg windowsCertStoreConfig) (func(*tls.Cert
 // the store itself) can fail to open the store at all as a result. Passing
 // CERT_STORE_READONLY_FLAG avoids requesting more than we need.
 func openWindowsCertStore(cfg windowsCertStoreConfig) (*certtostore.WinCertStore, error) {
-	opts := certtostore.DefaultWinCertStoreOptions(cfg.provider, cfg.container, cfg.issuers, cfg.intermediateIssuers, cfg.legacyKey)
+	// The container, issuers, and legacyKey arguments to
+	// DefaultWinCertStoreOptions only matter for certtostore's
+	// Key()/Generate()/CertWithContext(), none of which we call - we always
+	// find the certificate by common name via CertByCommonName() and use
+	// CertKey(), which resolves the private key via the certificate's own
+	// built-in key association and unconditionally requires a CNG
+	// (NCrypt) key (CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG), so legacy CAPI
+	// keys are never reachable through this path regardless.
+	opts := certtostore.DefaultWinCertStoreOptions(cfg.provider, "", nil, nil, false)
 	opts.StoreFlags = windows.CERT_STORE_READONLY_FLAG
 
 	switch cfg.location {

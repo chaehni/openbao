@@ -10,7 +10,6 @@ import (
 	"net/http"
 
 	"github.com/hashicorp/go-hclog"
-	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/openbao/openbao/api/v2"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/v2/internal/command/agentproxyshared/auth"
@@ -123,15 +122,6 @@ func NewCertAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
 			}
 		}
 
-		containerRaw, ok := conf.Config["windows_cert_store_container"]
-		if ok {
-			sawWindowsCertStoreConfig = true
-			c.windowsCertStore.container, ok = containerRaw.(string)
-			if !ok {
-				return nil, errors.New("could not convert 'windows_cert_store_container' config value to string")
-			}
-		}
-
 		commonNameRaw, ok := conf.Config["windows_cert_store_common_name"]
 		if ok {
 			sawWindowsCertStoreConfig = true
@@ -141,43 +131,14 @@ func NewCertAuthMethod(conf *auth.AuthConfig) (auth.AuthMethod, error) {
 			}
 		}
 
-		issuersRaw, ok := conf.Config["windows_cert_store_issuers"]
-		if ok {
-			sawWindowsCertStoreConfig = true
-			var err error
-			c.windowsCertStore.issuers, err = parseutil.ParseCommaStringSlice(issuersRaw)
-			if err != nil {
-				return nil, fmt.Errorf("could not parse 'windows_cert_store_issuers' config value: %w", err)
-			}
-		}
-
-		intermediateIssuersRaw, ok := conf.Config["windows_cert_store_intermediate_issuers"]
-		if ok {
-			sawWindowsCertStoreConfig = true
-			var err error
-			c.windowsCertStore.intermediateIssuers, err = parseutil.ParseCommaStringSlice(intermediateIssuersRaw)
-			if err != nil {
-				return nil, fmt.Errorf("could not parse 'windows_cert_store_intermediate_issuers' config value: %w", err)
-			}
-		}
-
-		legacyKeyRaw, ok := conf.Config["windows_cert_store_legacy_key"]
-		if ok {
-			sawWindowsCertStoreConfig = true
-			c.windowsCertStore.legacyKey, ok = legacyKeyRaw.(bool)
-			if !ok {
-				return nil, errors.New("could not convert 'windows_cert_store_legacy_key' config value to bool")
-			}
-		}
-
-		c.windowsCertStore.enabled = c.windowsCertStore.commonName != "" || c.windowsCertStore.container != "" || len(c.windowsCertStore.issuers) > 0
+		c.windowsCertStore.enabled = c.windowsCertStore.commonName != ""
 
 		if c.windowsCertStore.enabled && (c.clientCert != "" || c.clientKey != "") {
 			return nil, errors.New("'client_cert'/'client_key' cannot be used together with windows_cert_store_* configuration")
 		}
 
 		if sawWindowsCertStoreConfig && !c.windowsCertStore.enabled {
-			return nil, errors.New("windows_cert_store_* configuration requires either 'windows_cert_store_common_name' or 'windows_cert_store_container'/'windows_cert_store_issuers' to locate the certificate")
+			return nil, errors.New("windows_cert_store_* configuration requires 'windows_cert_store_common_name' to locate the certificate")
 		}
 	}
 
