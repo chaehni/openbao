@@ -196,7 +196,6 @@ func TestCertAuthMethod_WindowsCertStore_ConflictsWithClientCert(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store":             true,
 			"windows_cert_store_common_name": "example",
 			"client_cert":                    "./test-fixtures/keys/cert.pem",
 			"client_key":                     "./test-fixtures/keys/key.pem",
@@ -204,7 +203,7 @@ func TestCertAuthMethod_WindowsCertStore_ConflictsWithClientCert(t *testing.T) {
 	}
 
 	if _, err := NewCertAuthMethod(config); err == nil {
-		t.Fatal("expected error when combining windows_cert_store with client_cert/client_key")
+		t.Fatal("expected error when combining windows_cert_store_* config with client_cert/client_key")
 	}
 }
 
@@ -213,12 +212,12 @@ func TestCertAuthMethod_WindowsCertStore_RequiresLocator(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store": true,
+			"windows_cert_store_location": "current_user",
 		},
 	}
 
 	if _, err := NewCertAuthMethod(config); err == nil {
-		t.Fatal("expected error when windows_cert_store is enabled without a common name, container, or issuers")
+		t.Fatal("expected error when windows_cert_store_* config is present without a common name, container, or issuers")
 	}
 }
 
@@ -227,7 +226,6 @@ func TestCertAuthMethod_WindowsCertStore_InvalidLocation(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store":             true,
 			"windows_cert_store_common_name": "example",
 			"windows_cert_store_location":    "not-a-real-location",
 		},
@@ -243,7 +241,6 @@ func TestCertAuthMethod_WindowsCertStore_ParsesConfig(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store":                      true,
 			"windows_cert_store_location":             "current_user",
 			"windows_cert_store_provider":             "Microsoft Platform Crypto Provider",
 			"windows_cert_store_container":            "my-container",
@@ -291,7 +288,6 @@ func TestCertAuthMethod_WindowsCertStore_DefaultProvider(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store":             true,
 			"windows_cert_store_common_name": "example",
 		},
 	}
@@ -319,7 +315,6 @@ func TestCertAuthMethod_WindowsCertStore_UnsupportedPlatform(t *testing.T) {
 		Logger:    hclog.NewNullLogger(),
 		MountPath: "cert-test",
 		Config: map[string]any{
-			"windows_cert_store":             true,
 			"windows_cert_store_common_name": "example",
 		},
 	}

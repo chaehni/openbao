@@ -33,13 +33,14 @@ config stanza, Agent and Proxy will fall back to using TLS settings from their r
 - `reload` `(bool: optional, default: false)` - If true, causes the local x509 key-pair to be reloaded from disk on each authentication attempt.
   This is useful in situations where client certificates are short-lived and automatically renewed.
 
-- `windows_cert_store` `(bool: optional, default: false)` - If true, the client certificate
-  and private key are sourced from the Windows certificate store (via CNG/CryptoAPI) instead
-  of from `client_cert`/`client_key` on disk. This allows the private key to remain
-  non-exportable (e.g. TPM-backed) since signing during the TLS handshake is delegated to the
-  store. Only supported when the agent binary is built for Windows (`GOOS=windows`). Mutually
-  exclusive with `client_cert`/`client_key`. Requires either `windows_cert_store_common_name`
-  or `windows_cert_store_container`/`windows_cert_store_issuers` to locate the certificate.
+- Sourcing the client certificate and private key from the **Windows certificate store** (via
+  CNG/CryptoAPI) instead of from `client_cert`/`client_key` on disk is enabled implicitly by
+  setting any of the `windows_cert_store_*` options below - there is no separate enable flag.
+  This allows the private key to remain non-exportable (e.g. TPM-backed) since signing during
+  the TLS handshake is delegated to the store. Only supported when the agent binary is built
+  for Windows (`GOOS=windows`). Mutually exclusive with `client_cert`/`client_key`. Requires
+  either `windows_cert_store_common_name` or `windows_cert_store_container`/
+  `windows_cert_store_issuers` to locate the certificate.
 
 - `windows_cert_store_location` `(string: optional, default: "local_machine")` - Which Windows
   certificate store to open: `local_machine` or `current_user`.
